@@ -1,33 +1,23 @@
 ## 📰 Web Scraping News from Black Knight Nation
 
-This Python script uses Selenium and Pandas to scrape the latest news articles from Black Knight Nation and save them as a CSV file.
+This Python script uses Selenium, Pandas, and Google Sheets API to scrape the latest news articles from Black Knight Nation, save them as a CSV file, and update a Google Sheets spreadsheet.
 
 ---
 
 ## 📌 Features
 
 - 🚀 Automates web browsing using Selenium.
+- 🌍 Uses rotating proxies to avoid IP bans.
 - 🏷 Extracts news titles, categories, publication dates, and authors.
 - 📂 Saves the extracted data into a structured CSV file.
 - 📊 Uses Pandas for data processing.
-
----
-
-## 🛠️ Requirements
-
-Ensure you have Python 3.x installed. Then, install the necessary dependencies:
-
-```sh
-pip install selenium pandas
-```
-
-Additionally, download and install the latest version of **ChromeDriver** to match your Chrome browser version.
+- 📤 Updates a Google Sheets document with the extracted data.
 
 ---
 
 ## 🚀 How It Works
 
-1. Opens the website using Selenium.
+1. Opens the website using Selenium with a **random proxy**.
 2. Finds all news articles using XPath.
 3. Extracts relevant information:
    - 🏷 **Title**
@@ -36,6 +26,7 @@ Additionally, download and install the latest version of **ChromeDriver** to mat
    - ✍ **Author**
 4. Stores the extracted data in a Pandas DataFrame.
 5. Saves the results in a CSV file (`news.csv`).
+6. Updates Google Sheets with the extracted data.
 
 ---
 
@@ -45,83 +36,98 @@ Additionally, download and install the latest version of **ChromeDriver** to mat
 
 ```python
 import pandas as pd
+import json
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
 import time
+import gspread
+import random
+from oauth2client.service_account import ServiceAccountCredentials
+from proxies import get_free_proxies
 ```
 
 - 📊 Imports **Pandas** for data handling.
 - 🌐 Imports **Selenium** for web scraping.
-- 🛠️ Imports necessary **Selenium components** for interacting with the webpage.
+- 🔄 Uses **random proxies** to avoid detection.
+- 📤 Imports **Google Sheets API** for updating spreadsheets.
 
-### Initializing WebDriver
+### Initializing WebDriver with Proxy
 
 ```python
-driver = webdriver.Chrome()
-wait = WebDriverWait(driver, 5)
-driver.get('http://www.blackknightnation.com/')
-time.sleep(2)
+def get_driver_with_proxy():
+    proxy = get_free_proxies()
+    print(f'Using proxy: {proxy}')
+
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument(f'--proxy-server=https://{proxy}')
+    chrome_options.add_argument("--proxy-bypass-list=*")
+
+    return webdriver.Chrome(options=chrome_options)
 ```
 
-- 🖥️ Initializes the **Chrome WebDriver**.
-- 🌍 Opens the **Black Knight Nation** website.
-- ⏳ Waits **2 seconds** to allow page loading.
+- 🛡️ **Uses a random proxy** from `get_free_proxies()`.
+- 🚀 Runs Selenium in **headless mode** for efficiency.
 
 ### Extracting News Data
 
 ```python
-data = []
-news = driver.find_elements(By.XPATH, '//li[contains(@class, "mvp-blog-story-wrap")]')
+def scrape_news():
+    driver = get_driver_with_proxy()
+    driver.get('http://www.blackknightnation.com/')
+    time.sleep(2)
+
+    data = []
+    news = driver.find_elements(By.XPATH, '//li[contains(@class, "mvp-blog-story-wrap")]')
+
+    for new in news:
+        try:
+            title = new.find_element(By.XPATH, './/h2/a').text
+            category = new.find_element(By.XPATH, './/h3/a').text
+            post_age = new.find_element(By.XPATH, './/span[contains(@class, "mvp-post-info-date")]').text
+            author = new.find_element(By.XPATH, './/a[contains(@rel, "author")]').text
+            data.append([title, category, post_age, author])
+        except Exception:
+            print('Data extraction error')
+
+    driver.quit()
+    df_news = pd.DataFrame(data, columns=['title', 'category', 'post_age', 'author'])
+    df_news.to_csv('news.csv', index=False, encoding='utf-8', sep=';')
+    return df_news
 ```
 
-- 📦 Creates an **empty list** to store extracted data.
-- 🔍 Finds all **news articles** using XPath.
+- 📌 Extracts **news titles, categories, dates, and authors**.
+- 🔄 Stores data in a Pandas **DataFrame**.
+- 💾 Saves data to a **CSV file**.
 
-### Looping Through News Articles
+### Updating Google Sheets
 
 ```python
-for new in news:
-    try:
-        title = new.find_element(By.XPATH, './/h2/a').text
-        category = new.find_element(By.XPATH, './/h3/a').text
-        post_age = new.find_element(By.XPATH, './/span[contains(@class, "mvp-post-info-date")]').text
-        author = new.find_element(By.XPATH, './/a[contains(@rel, "author")]').text
+def update_google_sheets(df_news):
+    creds_data = load_credentials()
+    sheet_name = creds_data['sheet_name']
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_name('google_sheets_credentials.json', scope)
+    client = gspread.authorize(creds)
+    sheet = client.open(sheet_name).sheet1
 
-        data.append([title, category, post_age, author])
+    existing_data = sheet.get_all_values()
+    print('Actual table:', existing_data)
+    if not existing_data or all(cell == "" for cell in existing_data[0]):
+        sheet.clear()
+        sheet.append_row(['Title', 'Category', 'Post Age', 'Author'])
 
-    except Exception as e:
-        print(f'Data extraction error')
+    for row in df_news.values.tolist():
+        sheet.append_row(row)
+    print('Google Sheets atualizado com sucesso!')
 ```
 
-- 🔄 Loops through each **news article**.
-- 📌 Extracts:
-  - **Title** (h2/a)
-  - **Category** (h3/a)
-  - **Publication date** (mvp-post-info-date)
-  - **Author** (rel="author")
-- 📝 Appends the extracted data to a list.
-- ⚠️ Handles errors gracefully.
-
-### Closing WebDriver
-
-```python
-driver.quit()
-```
-
-- ❌ Closes the **browser** after extraction.
-
-### Storing Data in CSV
-
-```python
-df_news = pd.DataFrame(data, columns=['title', 'category', 'post_age', 'author'])
-print(df_news.head())
-df_news.to_csv('news.csv', index=False, encoding='utf-8', sep=';')
-```
-
-- 🔄 Converts the extracted data into a **Pandas DataFrame**.
-- 👀 Displays the first **5 rows** for preview.
-- 💾 Saves the data as a **CSV file (`news.csv`)**.
+- 📤 **Loads Google Sheets credentials**.
+- 🔄 **Appends new data to the sheet**.
+- 🛠 Clears sheet if it's empty.
 
 ---
 
@@ -137,24 +143,6 @@ A sample `news.csv` file will look like this:
 
 ---
 
-## 🏁 Running the Script
-
-To run the script, execute:
-
-```sh
-python script.py
-```
-
----
-
-## ⚠️ Notes
-
-- Ensure that **ChromeDriver** is installed and compatible with your browser version.
-- You may need to **update the XPath selectors** if the website's structure changes.
-
----
-
 ## 📜 License
 
 This project is open-source and available under the **MIT License**.
-
