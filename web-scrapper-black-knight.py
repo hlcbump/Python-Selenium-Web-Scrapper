@@ -12,13 +12,14 @@ from proxies import get_free_proxies
 
 CREDENTIALS_FILE = "google_sheets_credentials.json"
 
+# load credentials from credentials json file
 def load_credentials():
     with open(CREDENTIALS_FILE, "r") as file:
         creds = json.load(file)
     return creds
 
+# get driver headless and with proxy
 def get_driver_with_proxy():
-
     # get proxy
     proxy = get_free_proxies()
 
@@ -32,7 +33,6 @@ def get_driver_with_proxy():
     return webdriver.Chrome(options=chrome_options)
 
 def scrape_news():
-
     driver = get_driver_with_proxy()
     driver.get('http://www.blackknightnation.com/')
     time.sleep(2)
@@ -71,6 +71,7 @@ def scrape_news():
 
     return df_news
 
+# update google sheets
 def update_google_sheets(df_news):
 
     # get credentials
